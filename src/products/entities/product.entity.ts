@@ -1,21 +1,40 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+
+import {
+  Entity,
+  Column,
+  ManyToOne,
+  ManyToMany,
+  JoinTable,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn
+} from 'typeorm';
+import { UserEntity } from '../../users/entities/user.entity';
+import { CategoryEntity } from 'src/categories/entities/CategoryEntities';
 
 @Entity('products')
 export class ProductEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 200, nullable: false })
+  @Column({ length: 150 })
   name: string;
 
-  @Column({ type: 'text', nullable: true })
-  description: string;
-
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: false })
+  @Column('decimal')
   price: number;
 
-  @Column({ type: 'integer', nullable: false, default: 0 })
+  @Column({ length: 500, nullable: true })
+  description: string;
+
+  @Column({ default: 0 })
   stock: number;
+
+  @ManyToOne(() => UserEntity, { eager: true })
+  owner: UserEntity;
+
+  @ManyToMany(() => CategoryEntity, category => category.products, { eager: true })
+  @JoinTable({ name: 'product_categories' })
+  categories: CategoryEntity[];
 
   @CreateDateColumn()
   createdAt: Date;
@@ -23,6 +42,18 @@ export class ProductEntity {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @Column({ type: 'boolean', nullable: false, default: false })
-  deleted: boolean;
+  // ==================== MÉTODOS DE CONVENIENCIA ====================
+  addCategory(category: CategoryEntity) {
+    if (!this.categories) this.categories = [];
+    this.categories.push(category);
+  }
+
+  removeCategory(category: CategoryEntity) {
+    if (!this.categories) return;
+    this.categories = this.categories.filter(c => c.id !== category.id);
+  }
+
+  clearCategories() {
+    this.categories = [];
+  }
 }

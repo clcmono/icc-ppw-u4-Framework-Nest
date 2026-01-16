@@ -3,25 +3,21 @@ import { ProductEntity } from "../entities/product.entity";
 import { ProductResponseDto } from "../dtos/product-response.dto";
 
 export class ProductMapper {
-    static toEntity(id: number, dto: any) {
-        return new Product(
-            id,
-            dto.name,
-            dto.description || '',
-            dto.price,
-            dto.stock || 0,
-            new Date()
-        );
+    static toEntity(dto: any): Product {
+        // Usa el método estático del modelo para crear un Product
+        return Product.fromDto(dto);
     }
 
-    static toResponse(entity: Product): ProductResponseDto {
+    static toResponse(product: Product): ProductResponseDto {
+        // Usa los getters para acceder a las propiedades
         return {
-            id: entity.id,
-            name: entity.name,
-            description: entity.description,
-            price: entity.price,
-            stock: entity.stock,
-            createdAt: entity.createdAt.toISOString(),
+            id: product.getId?.() ?? 0,
+            name: product.getName(),
+            description: product.getDescription(),
+            price: product.getPrice(),
+            stock: product['stock'] ?? 0, // Si no hay getter, accede directamente
+            createdAt: new Date(), // Ajusta según tu lógica
+            updatedAt: new Date(),
         };
     }
 }

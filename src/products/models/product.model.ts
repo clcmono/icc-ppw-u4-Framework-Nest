@@ -1,106 +1,147 @@
 import { CreateProductDto } from '../dtos/create-product.dto';
 import { UpdateProductDto } from '../dtos/update-product.dto';
 import { PartialUpdateProductDto } from '../dtos/partial-update-product.dto';
-import { ProductResponseDto } from '../dtos/product-response.dto';
+import { ProductEntity } from '../entities/product.entity';
+import { UserEntity } from '../../users/entities/user.entity';
+import { CategoryEntity } from 'src/categories/entities/CategoryEntities';
+import { ProductResponseDto, UserSummaryDto, CategoryResponseDto } from '../dtos/product-response.dto';
 
 export class Product {
-  constructor(
-    public id: number,
-    public name: string,
-    public description: string,
-    public price: number,
-    public stock: number,
-    public createdAt: Date,
-  ) {
-    this.validateBusinessRules();
+  private id?: number;
+  private name: string;
+  private price: number;
+  private description?: string;
+  private stock: number;
+
+  constructor(name: string, price: number, description?: string, stock?: number) {
+    this.validateBusinessRules(name, price, description);
+    this.name = name;
+    this.price = price;
+    this.description = description;
+    this.stock = stock ?? 0;
   }
 
-  private validateBusinessRules(): void {
-    if (!this.name || this.name.trim().length < 3) {
-      throw new Error('El nombre del producto debe tener al menos 3 caracteres');
+  // ==================== VALIDACIONES ====================
+  private validateBusinessRules(name: string, price: number, description?: string): void {
+    if (!name || name.trim().length === 0) {
+      throw new Error('El nombre del producto es obligatorio');
     }
-
-    if (this.price < 0) {
-      throw new Error('El precio no puede ser negativo');
+    if (price == null || price <= 0) {
+      throw new Error('El precio debe ser mayor a 0');
     }
-
-    if (this.stock < 0) {
-      throw new Error('El stock no puede ser negativo');
+    if (description && description.length > 500) {
+      throw new Error('La descripción no puede superar 500 caracteres');
     }
   }
 
   // ==================== FACTORY METHODS ====================
-
- 
   static fromDto(dto: CreateProductDto): Product {
-    return new Product(
-      0, // El ID se asigna en BD
-      dto.name,
-      dto.description || '',
-      dto.price,
-      dto.stock || 0,
-      new Date(),
-    );
+    return new Product(dto.name, dto.price, dto.description, dto.stock);
   }
 
- 
-  static fromEntity(entity: any): Product {
-    return new Product(
-      entity.id,
-      entity.name,
-      entity.description,
-      entity.price,
-      entity.stock,
-      entity.createdAt,
-    );
+  static fromEntity(entity: ProductEntity): Product {
+    const product = new Product(entity.name, entity.price, entity.description, entity.stock ?? 0);
+    product.id = entity.id;
+    return product;
   }
 
-  toEntity(): any {
-    const entity = {};
-    if (this.id > 0) {
-      entity['id'] = this.id;
-    }
-    entity['name'] = this.name;
-    entity['description'] = this.description;
-    entity['price'] = this.price;
-    entity['stock'] = this.stock;
+  // ==================== CONVERSION METHODS ====================
+  /**
+   * Adaptado para N:N
+   */
+  toEntity(owner: UserEntity, categories: Set<CategoryEntity> | CategoryEntity[]): ProductEntity {
+    const entity = new ProductEntity();
+    if (this.id !== undefined) entity.id = this.id;
+    entity.name = this.name;
+    entity.price = this.price;
+    entity.description = this.description ?? '';
+    entity.stock = this.stock;
+    entity.owner = owner;
+
+    // Asignar categorías (Set o Array)
+    entity.categories = Array.isArray(categories) ? categories : Array.from(categories);
+
     return entity;
   }
-  toResponseDto(): ProductResponseDto {
-    return {
-      id: this.id,
+
+  // ==================== RESPONSE DTO ====================
+  toResponseDto(owner?: UserEntity, categories?: CategoryEntity[]): ProductResponseDto {
+    const response: ProductResponseDto = {
+      id: this.id!,
       name: this.name,
       description: this.description,
       price: this.price,
       stock: this.stock,
-      createdAt: this.createdAt.toISOString(),
+      createdAt: new Date(), // puedes reemplazar con entity.createdAt real
+      updatedAt: new Date(), // puedes reemplazar con entity.updatedAt real
+
+      // Objetos anidados
+      user: owner
+        ? { id: owner.id, name: owner.name, email: owner.email }
+        : undefined,
+      categories: categories
+        ? categories.map(cat => ({
+            id: cat.id,
+            name: cat.name,
+            description: cat.description,
+          }))
+        : undefined,
+
+      // Información plana
+      userId: owner?.id,
+      userName: owner?.name,
+      userEmail: owner?.email,
+      // ...campos planos de categoría eliminados para evitar error de tipo
     };
+
+    return response;
   }
+
+  // ==================== UPDATE METHODS ====================
   update(dto: UpdateProductDto): Product {
-    if (dto.name !== undefined) this.name = dto.name;
-    if (dto.description !== undefined) this.description = dto.description;
-    if (dto.price !== undefined) this.price = dto.price;
-    if (dto.stock !== undefined) this.stock = dto.stock;
-    this.validateBusinessRules();
+    this.validateBusinessRules(dto.name, dto.price, dto.description);
+    this.name = dto.name;
+    this.price = dto.price;
+    this.description = dto.description;
     return this;
   }
 
   partialUpdate(dto: PartialUpdateProductDto): Product {
-    if (dto.name !== undefined) this.name = dto.name;
-    if (dto.description !== undefined) this.description = dto.description;
-    if (dto.price !== undefined) this.price = dto.price;
-    if (dto.stock !== undefined) this.stock = dto.stock;
-    this.validateBusinessRules();
+    const name = dto.name ?? this.name;
+    const price = dto.price ?? this.price;
+    const description = dto.description ?? this.description;
+    const stock = (dto as any).stock ?? this.stock;
+
+    this.validateBusinessRules(name, price, description);
+
+    this.name = name;
+    this.price = price;
+    this.description = description;
+    this.stock = stock;
+
     return this;
   }
+
+  // ==================== STOCK METHODS ====================
   reduceStock(quantity: number): void {
-    if (quantity > this.stock) {
-      throw new Error('Stock insuficiente');
-    }
+    if (quantity > this.stock) throw new Error('Stock insuficiente');
     this.stock -= quantity;
   }
 
   addStock(quantity: number): void {
     this.stock += quantity;
   }
+
+  // ==================== GETTERS & SETTERS ====================
+  getId(): number | undefined { return this.id; }
+  getName(): string { return this.name; }
+  getPrice(): number { return this.price; }
+  getDescription(): string | undefined { return this.description; }
+  getStock(): number { return this.stock; }
+
+  setId(id: number): void { this.id = id; }
+  setName(name: string): void { this.name = name; }
+  setPrice(price: number): void { this.price = price; }
+  setDescription(description: string): void { this.description = description; }
+  setStock(stock: number): void { this.stock = stock; }
 }

@@ -9,136 +9,143 @@ import { PartialUpdateProductDto } from '../dtos/partial-update-product.dto';
 import { ProductResponseDto } from '../dtos/product-response.dto';
 import { NotFoundException } from 'src/exceptions/domain/not-found.exception';
 import { ConflictException } from 'src/exceptions/domain/conflict.exception';
+import { UserEntity } from '../../users/entities/user.entity';
+import { CategoryEntity } from 'src/categories/entities/CategoryEntities';
 
 @Injectable()
 export class ProductsService {
   constructor(
     @InjectRepository(ProductEntity)
     private readonly productRepository: Repository<ProductEntity>,
+
+    @InjectRepository(UserEntity)
+    private readonly userRepository: Repository<UserEntity>,
+
+    @InjectRepository(CategoryEntity)
+    private readonly categoryRepository: Repository<CategoryEntity>,
   ) {}
 
-  /**
-   * Obtener todos los productos (enfoque funcional)
-   */
+  // ==================== GET ALL ====================
   async findAll(): Promise<ProductResponseDto[]> {
-    const entities = await this.productRepository.find();
-
-    return entities
-      .map(Product.fromEntity)
-      .map(product => product.toResponseDto());
-  }
-
-  /**
-   * Obtener un producto por ID
-   */
-  async findOne(id: number): Promise<ProductResponseDto> {
-    const entity = await this.productRepository.findOne({ where: { id } });
-
-    if (!entity) {
-      throw new NotFoundException(`Producto no encontrado con ID: ${id}`);
-    }
-
-    return Product.fromEntity(entity).toResponseDto();
-  }
-
-  /**
-   * Crear producto
-   */
-  async create(dto: CreateProductDto): Promise<ProductResponseDto> {
-    // Validar que no exista un producto con el mismo nombre
-    const existingProduct = await this.productRepository.findOne({
-      where: { name: dto.name },
+    const entities = await this.productRepository.find({
+      relations: ['owner', 'categories'], // plural
     });
+    return entities.map(entity => this.toResponseDto(entity));
+  }
 
-    if (existingProduct) {
-      throw new ConflictException(
-        `Ya existe un producto con el nombre "${dto.name}"`,
-      );
-    }
+  // ==================== GET ONE ====================
+  async findOne(id: number): Promise<ProductResponseDto> {
+    const entity = await this.productRepository.findOne({
+      where: { id },
+      relations: ['owner', 'categories'],
+    });
+    if (!entity) throw new NotFoundException(`Producto no encontrado con ID: ${id}`);
+    return this.toResponseDto(entity);
+  }
+
+  // ==================== CREATE ====================
+  async create(dto: CreateProductDto): Promise<ProductResponseDto> {
+    const existing = await this.productRepository.findOne({ where: { name: dto.name } });
+    if (existing) throw new ConflictException(`Ya existe un producto con el nombre "${dto.name}"`);
+
+    const owner = await this.userRepository.findOne({ where: { id: dto.userId } });
+    if (!owner) throw new NotFoundException(`Usuario no encontrado con ID: ${dto.userId}`);
+
+    const categories = await this.validateAndGetCategories(dto.categoryIds);
 
     const product = Product.fromDto(dto);
-    const entity = product.toEntity();
+    const entity = product.toEntity(owner, categories);
+
     const saved = await this.productRepository.save(entity);
-
-    return Product.fromEntity(saved).toResponseDto();
+    return this.toResponseDto(saved);
   }
 
-  /**
-   * Actualizar producto completo (PUT)
-   */
+  // ==================== UPDATE (PUT) ====================
   async update(id: number, dto: UpdateProductDto): Promise<ProductResponseDto> {
-    const entity = await this.productRepository.findOne({ where: { id } });
+    const entity = await this.productRepository.findOne({
+      where: { id },
+      relations: ['owner', 'categories'],
+    });
+    if (!entity) throw new NotFoundException(`Producto no encontrado con ID: ${id}`);
 
-    if (!entity) {
-      throw new NotFoundException(`Producto no encontrado con ID: ${id}`);
-    }
-
-    // Si cambió el nombre, validar que no exista otro con ese nombre
     if (dto.name && dto.name !== entity.name) {
-      const existingProduct = await this.productRepository.findOne({
-        where: { name: dto.name },
-      });
-
-      if (existingProduct) {
-        throw new ConflictException(
-          `Ya existe un producto con el nombre "${dto.name}"`,
-        );
-      }
+      const existing = await this.productRepository.findOne({ where: { name: dto.name } });
+      if (existing) throw new ConflictException(`Ya existe un producto con el nombre "${dto.name}"`);
     }
 
-    const updated = Product.fromEntity(entity)
-      .update(dto)
-      .toEntity();
+    const categories = await this.validateAndGetCategories(dto.categoryIds);
 
-    const saved = await this.productRepository.save(updated);
+    const product = Product.fromEntity(entity).update(dto);
+    const updatedEntity = product.toEntity(entity.owner, categories);
+    updatedEntity.categories = categories;
 
-    return Product.fromEntity(saved).toResponseDto();
+    const saved = await this.productRepository.save(updatedEntity);
+    return this.toResponseDto(saved);
   }
 
-  /**
-   * Actualizar parcialmente (PATCH)
-   */
+  // ==================== PARTIAL UPDATE (PATCH) ====================
   async partialUpdate(id: number, dto: PartialUpdateProductDto): Promise<ProductResponseDto> {
-    const entity = await this.productRepository.findOne({ where: { id } });
+    const entity = await this.productRepository.findOne({
+      where: { id },
+      relations: ['owner', 'categories'],
+    });
+    if (!entity) throw new NotFoundException(`Producto no encontrado con ID: ${id}`);
 
-    if (!entity) {
-      throw new NotFoundException(`Producto no encontrado con ID: ${id}`);
-    }
-
-    // Si cambió el nombre, validar que no exista otro con ese nombre
     if (dto.name && dto.name !== entity.name) {
-      const existingProduct = await this.productRepository.findOne({
-        where: { name: dto.name },
-      });
-
-      if (existingProduct) {
-        throw new ConflictException(
-          `Ya existe un producto con el nombre "${dto.name}"`,
-        );
-      }
+      const existing = await this.productRepository.findOne({ where: { name: dto.name } });
+      if (existing) throw new ConflictException(`Ya existe un producto con el nombre "${dto.name}"`);
     }
 
-    const updated = Product.fromEntity(entity)
-      .partialUpdate(dto)
-      .toEntity();
+    let categories = entity.categories;
+    if (dto.categoryIds) {
+      categories = await this.validateAndGetCategories(dto.categoryIds);
+    }
 
-    const saved = await this.productRepository.save(updated);
+    const product = Product.fromEntity(entity).partialUpdate(dto);
+    const updatedEntity = product.toEntity(entity.owner, categories);
 
-    return Product.fromEntity(saved).toResponseDto();
+    const saved = await this.productRepository.save(updatedEntity);
+    return this.toResponseDto(saved);
   }
 
-  /**
-   * Eliminar producto
-   */
+  // ==================== DELETE ====================
   async delete(id: number): Promise<{ message: string }> {
     const entity = await this.productRepository.findOne({ where: { id } });
-
-    if (!entity) {
-      throw new NotFoundException(`Producto no encontrado con ID: ${id}`);
-    }
-
+    if (!entity) throw new NotFoundException(`Producto no encontrado con ID: ${id}`);
     await this.productRepository.remove(entity);
-
     return { message: `Producto eliminado con ID: ${id}` };
+  }
+
+  // ==================== HELPERS ====================
+  private async validateAndGetCategories(ids: number[]): Promise<CategoryEntity[]> {
+    const categories: CategoryEntity[] = [];
+    for (const id of ids) {
+      const category = await this.categoryRepository.findOne({ where: { id } });
+      if (!category) throw new NotFoundException(`Categoría no encontrada con ID: ${id}`);
+      categories.push(category);
+    }
+    return categories;
+  }
+
+  private toResponseDto(entity: ProductEntity): ProductResponseDto {
+    return {
+      id: entity.id,
+      name: entity.name,
+      price: entity.price,
+      description: entity.description,
+      stock: entity.stock,
+      user: {
+        id: entity.owner.id,
+        name: entity.owner.name,
+        email: entity.owner.email,
+      },
+      categories: entity.categories.map(c => ({
+        id: c.id,
+        name: c.name,
+        description: c.description,
+      })),
+      createdAt: entity.createdAt,
+      updatedAt: entity.updatedAt,
+    };
   }
 }

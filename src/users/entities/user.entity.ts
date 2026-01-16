@@ -1,5 +1,6 @@
-import { Entity, Column } from 'typeorm';
+import { Entity, Column, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../core/entities/base.entity';
+import { ProductEntity } from '../../products/entities/product.entity';
 
 @Entity('users')
 export class UserEntity extends BaseEntity {
@@ -12,4 +13,6 @@ export class UserEntity extends BaseEntity {
 
   @Column({ type: 'varchar', nullable: false })
   password: string;
+
+  // No se agrega relación bidireccional para mantener bajo acoplamiento, según la guía.
 }
